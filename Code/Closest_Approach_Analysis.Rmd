@@ -7,142 +7,76 @@ output: html_document
 
 ##Read in data and packages
 ```{r}
-CAglmer <- read.csv("./ClosestApproachJWMGLMM.csv", header=T,)
-library(ggplot2) ### regular plotting with ggplot
-library(ggfortify) ### this gives us autoplot
-library(MASS) ### this will let us do stepwise regression in an automated fashion
-library(ggthemes) # gives us theme_few()
-library(lme4)###GLMM
+CAglmer <- read.csv("./ClosestApproachDat.csv", header=T,)
+library(ggplot2)
+library(ggfortify)
+library(MASS)
+library(ggthemes) 
+library(lme4)
 library(lattice)
 library(lmerTest)
+library(emmeans)
 ```
-
-```{r}
-getwd()
-```
-
 
 ##Variables##
 ```{r}
-CAglmer$Site_NumFactor = as.factor(CAglmer$Site_Num)
+CAglmer$Site_Num = as.factor(CAglmer$Site_Num)
 CAglmer$Phase_Num = as.factor(CAglmer$Phase_Num)
 CAglmer$Distance = CAglmer$Distance
 ```
 
-
-###Choosing GLMMs (as opposed to GLMs) to deal with non-independence in response
-
-###little Bimodal, but appears gamma is the fix! How do editors know these things with no data!!!
-###Random effect from normal distribution; its odd because hist says 1 has 6, but when I count the data it says 3. I believe this is a histogram glitch.
-```{r}
-###Assumption check: before model fitting###
-
-##Normality of Response variable
-#Should at least be unimodel with a bit of tails to either side
-#make transformations as needed
-hist(CAglmer$Distance)
-
-##Normality of Random Effect
-hist(CAglmer$Site_Num2)
-```
-
-```{r}
-table(CAglmer$Site_Num)
-```
-
-
-###Variance kind of equal###
-###I think this is because birds were super close in phase 1, then moved out in outer phases; So I would say we are okay.
-```{r}
-##Factors as Predictor variables?
-##Homogeneity of variance
-#variance should be relatively equal between groups
-boxplot(Distance ~ Phase_Num, data = CAglmer)
-```
-
-
-
+##Set-up reference levels for Phase_Num in order to determine all pair wise comparisons
 ```{r}
 CAglmer$Phase_Num2 = relevel(CAglmer$Phase_Num, ref = "2")
 CAglmer$Phase_Num = relevel(CAglmer$Phase_Num, ref = "1")
 ```
 
+###GLMMS for Closest Approach
 ```{r}
-CAmod1<-glmer(Distance ~ Phase_Num + (1 | Site_NumFactor), data=CAglmer, family = Gamma(link = "log"))
+##Model
+CAmod1<-glmer(Distance ~ Phase_Num + (1 | Site_Num), data=CAglmer, family = Gamma(link = "log"))
 summary(CAmod1)
 ```
 
 ```{r}
+##Confidence Intervals
 confint(CAmod1, method = "Wald")
 ```
 
 
-
-###Phase 2 as ref###
 ```{r}
-##run model
-CAmod<-glmer(Distance ~ Phase_Num2 + (1 | Site_NumFactor), data=CAglmer, family = Gamma(link = "log"))
+##Same model but with reference level set to During Phase
+CAmod<-glmer(Distance ~ Phase_Num2 + (1 | Site_Num), data=CAglmer, family = Gamma(link = "log"))
 summary(CAmod)
 ```
 
 ```{r}
-anova(CAmod)
-```
-
-```{r}
+##Confidence Intervals
 confint(CAmod, method = "Wald")
 ```
 
-
-
-
-###linearity of residuals of response - I dont think we need these; You use these in LMMs to assess linearity, but its assumed here that your link and distribution that were chosen are satisfying this.
+###Model Diagnostics
 ```{r}
-plot(resid(CAmod),CAglmer$Distance)
-```
-
-###linearity of residuals against predictor - I dont think we need these; You use these in LMMs to assess linearity, but its assumed here that your link and distribution that were chosen are satisfying this.
-```{r}
-plot(resid(CAmod),CAglmer$Phase_Num)
-```
-
-
-###Either way, I think they look good^^^ I traditionally have seen that upward trend in response residuals and then the randomness in fixed effects is what you want.
-
-
 ###Check Normality of residuals of fitted model after using Gamma
-```{r}
-qqmath(resid(CAmod)) ###fairly normal - good!!!
+qqmath(resid(CAmod))
 ```
 
 ##Checking model variances###
 ```{r}
 plot(CAmod)
 plot(resid(CAmod))
-
-#####Check Deviance/df.residuals to see how far from 1 (variances)
-##179.9/16 = 11.2 (I'd say chi-square isnt too large)
 ```
 
-###Check Normality of Random Effect - Normal; passed both tests
 ```{r}
 ###Normality of Intercepts
-r_int<- lme4::ranef(CAmod)$Site_NumFactor$`(Intercept)`
+r_int<- lme4::ranef(CAmod)$Site_Num$`(Intercept)`
 qqnorm(r_int)
 qqline(r_int)
 shapiro.test(r_int)
-
-###Normality of Slopes code### --Didnt need this because we did not include random slopes
-#r_slope<- lme4::ranef(CAmod)$Site_NumFactor$where_1_is_in((1|Site_NumFactor))
-#qqnorm(r_slope)
-#qqline(r_slope)
-#shapiro.test(r_slope)
 ```
 
-
-###Check variances of random effects
-###Yay! Variances equal!!!
 ```{r}
+###Check variances of random effect
 CAglmer$ModelResCA <- residuals(CAmod)
 CAglmer$ModelAbsResCA <- abs(CAglmer$ModelResCA)
 CAglmer$ModelAbsResSqCA <- CAglmer$ModelAbsResCA^2
@@ -152,28 +86,12 @@ anova(levenemodCA)
 ```
 
 
-
+###Develop Figure###
 ```{r}
 emm <- data.frame(emmeans(CAmod1, ~ Phase_Num, type = "response"))
 ```
 
 ```{r}
-#THIS IS THE GOOD ONE#
-levels(emm$Phase_Num) <- c("Pre", "During", "Post") 
-
-
-ClosestApp = ggplot(emm, aes(x= Phase_Num, y=response, fill = Phase_Num))+
-  geom_bar(colour = "black", position="dodge", stat="identity", width = 0.4, size = 0.6) + scale_y_continuous(expand = c(0, 0), limits = c(0, 70)) +
-  geom_errorbar(aes(ymin=asymp.LCL, ymax = asymp.UCL), width=0.1,size = 0.6, color = "grey0", position = position_dodge(.9)) + 
-  ylab("Mean closest approach (m)") + xlab("Phase") +
-  scale_fill_manual("legend", values = c("Pre" = "grey85", "During" = "grey40", "Post" = "grey60")) +
-  theme_bw() + theme(legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_rect(color = "black", size = 1), axis.text = element_text(size = 11, color = "black"), axis.title = element_text(size = 14),)
-
-ClosestApp
-```
-
-```{r}
-#THIS IS THE GOOD ONE#
 levels(emm$Phase_Num) <- c("Pre", "During", "Post") 
 
 

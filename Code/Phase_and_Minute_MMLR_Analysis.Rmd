@@ -5,3 +5,88 @@ date: "2022-11-21"
 output: html_document
 ---
 
+##Read in data and load packages##
+```{r}
+
+MultiBird <- read.csv("./MMLR_Dat.csv", header=T,)
+library(ggplot2) 
+library(ggfortify)
+library(ggthemes)
+library(lme4)
+library(lattice)
+library(ggeffects)
+library(mclogit)
+library(emmeans)
+library(tidyverse)
+```
+
+##Make variables##
+```{r}
+MultiBird$Site = as.factor(MultiBird$LOC_NUM_SOUND)
+MultiBird$Phase = as.factor(MultiBird$Phase_Num)
+MultiBird$Bin = as.factor(MultiBird$Bin_Num)
+```
+
+###Check collinearity of Phase and Minute
+```{r}
+one.wayCol <- aov(Min ~ Phase, data = MultiBird)
+summary(one.wayCol)
+```
+
+###Phase Analysis###
+```{r}
+###Run Phase Model
+modelA <- mblogit(Bin ~ Phase, random = ~1|Site, weights = num_birds, data = MultiBird, control = mmclogit.control(epsilon = 1e-05, maxit = 30))
+```
+
+```{r}
+###Output and Confidence Intervals
+summary(modelA)
+
+confint(modelA)
+```
+
+
+```{r}
+###Estimated marginal means of Phase MMLR
+emmeans(modelA, ~ Bin|Phase)
+```
+
+
+###Minute Analysis####
+```{r}
+###Run Minute Model
+modelB <- mblogit(Bin ~ Min, random = ~1|Site, weights = num_birds, data = MultiBird, control = mmclogit.control(epsilon = 1e-05, maxit = 30))
+```
+
+
+```{r}
+###Model Output and Confidence Intervals
+summary(modelB)
+confint(modelB)
+```
+
+###Graph Making
+```{r}
+###Create emmeans dataframe for graphing
+emMinute = data.frame(emmeans(modelB, ~ Bin | Min, at = list(Min = c(1:60))))
+
+emMinute
+```
+
+
+```{r}
+TimeSeries = ggplot(emMinute, aes(x=Min, y = prob, group = Bin)) + 
+  geom_ribbon(aes(ymin = asymp.LCL,ymax = asymp.UCL, group = Bin), fill = "grey70", alpha = 0.5) + 
+  geom_line(aes(color = Bin), size = 1) +
+  geom_vline(xintercept = 20, linetype = "dashed", color = "grey40") +
+  geom_vline(xintercept = 40, linetype = "dashed", color = "grey40") +
+  scale_color_manual(name ="Distance from \nspeaker (m)",  labels=c("0-25", "25-50", "50-75", "75-100"), values = c("#000000", "#E69F00", "#56B4E9", "#CC79A7"))+
+  theme(axis.text.x = element_text(size = 16, color = "black", family = "Arial"), axis.text.y = element_text(size = 16, color = "black", family = "Arial"), axis.title.y = element_text(size = 18, family = "Arial"), axis.title.x = element_text(size = 18, family = "Arial"), legend.title = element_text(size = 18, family = "Arial"), legend.text = element_text(size = 16, color = "black", family = "Arial"), panel.background = element_rect(fill = "white"), panel.border = element_blank(), axis.line = element_line(colour = "black"), plot.title = element_text(hjust = 0.5)) + 
+  ylab("Probability of occurrence") + 
+  xlab("Time (minutes)") +
+  guides(linetype = guide_legend(title = "Distance from speaker (m)"))
+
+TimeSeries
+```
+
